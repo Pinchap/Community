@@ -1,0 +1,56 @@
+def build_envd_if_not_found():
+    if not os.path.isfile("bin/envd"):
+        logging.info("envd not found. Build from scratch")
+        try:
+            with open(".GIT_TAG_INFO") as f:
+                logging.info("Use build_tag from .GIT_TAG_INFO")
+                tag = f.read().strip()
+                logging.info("start building envd from source")
+                errno = subprocess.call(
+                    ["make", "build-release", "GIT_TAG={}".format(tag)]
+                )
+        except OSError:
+            logging.warning(".GIT_TAG_INFO not found")
+            logging.info("start building envd from source")
+            errno = subprocess.call(["make", "build-release"])
+        assert errno == 0, "Failed to build envd"
+
+
+class EnvdExtension(Extension):
+    """Extension for `envd`"""
+
+
+class EnvdBuildExt(build_ext):
+    def build_extension(self, ext: Extension) -> None:
+        if not isinstance(ext, EnvdExtension):
+            return super().build_extension(ext)
+
+        build_envd_if_not_found()
+
+
+class bdist_wheel_universal(bdist_wheel):
+    def get_tag(self):
+        *_, plat = super().get_tag()
+        return "py2.py3", "none", plat
+
+
+class SdistCommand(sdist):
+    def run(self):
+        errno = subprocess.call(["make", "generate-git-tag-info"])
+        assert errno == 0, "Failed to generate git tag info"
+        if not os.path.isfile(".GIT_TAG_INFO"):
+            logging.warning(".GIT_TAG_INFO not found")
+        else:
+            logging.info(".GIT_TAG_INFO generated")
+        super().run()
+
+
+def get_version():
+    # Remove prefix v in versioning
+    build_envd_if_not_found()
+    version = subprocess.check_output(
+        ["./bin/envd", "version", "--short"], universal_newlines=True
+    ).strip()
+    ver = version.rsplit(" ", 1)[-1][1:]
+    return ver
+
